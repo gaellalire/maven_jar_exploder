@@ -42,6 +42,8 @@ import org.eclipse.aether.transport.file.FileTransporterFactory;
 import org.eclipse.aether.transport.http.HttpTransporterFactory;
 
 import fr.gaellalire.maven_jar_exploder.DynamicZip.FileMeta;
+import fr.gaellalire.maven_jar_exploder.utils.CompareContent;
+import fr.gaellalire.maven_jar_exploder.utils.ContructFromExplodedAssembly;
 
 public class MavenJarExploder {
 
@@ -171,7 +173,9 @@ public class MavenJarExploder {
         Properties properties = new Properties();
         List<FileMeta> fileMetas = new ArrayList<FileMeta>();
         CompressedStore compressedStore = new CompressedStore();
-        // explodedJarFile should be attach to the original artifact with exploded-assembly classifier and keep same extension than original artifact
+        // explodedJarFile should be attach to the original artifact with
+        // exploded-assembly classifier and keep same extension than original
+        // artifact
         File explodedJarFile = new File("exploded-assembly.zip");
         try (ZipArchiveOutputStream zos = new ZipArchiveOutputStream(new FileOutputStream(explodedJarFile))) {
             int position = 0;
@@ -194,7 +198,8 @@ public class MavenJarExploder {
                     MessageDigest mainDigest = MessageDigest.getInstance("SHA-512");
                     DigestInputStream dis = new DigestInputStream(zis, mainDigest);
                     boolean validZip = false;
-                    @SuppressWarnings("resource") // cannot close dis, it will also close zis 
+                    @SuppressWarnings("resource") // cannot close dis, it will
+                                                  // also close zis
                     ZipArchiveInputStream subZis = new ZipArchiveInputStream(dis);
                     try {
                         int subPosition = 0;
@@ -213,7 +218,8 @@ public class MavenJarExploder {
                                 DigestInputStream digestInputStream = new DigestInputStream(subZis, subDigest);
                                 while (digestInputStream.read() != -1)
                                     ;
-                                @SuppressWarnings("unused") // will be used later
+                                @SuppressWarnings("unused") // will be used
+                                                            // later
                                 MetaAndSha512 metaAndSha512 = new MetaAndSha512(toHexString(subDigest.digest()), subPosition, subNextEntry.getName(), subNextEntry.getSize(),
                                         subNextEntry.getCrc(), subNextEntry.getTime(), subNextEntry.getCompressedSize(), null);
                             } else {
@@ -247,13 +253,14 @@ public class MavenJarExploder {
                             // the archive content as it was
                             properties.setProperty("dep" + depNum + ".position", String.valueOf(position));
                             properties.setProperty("dep" + depNum + ".name", nextEntry.getName());
-                            properties.setProperty("dep" + depNum + ".crc32", String.valueOf(nextEntry.getCrc()));
-                            properties.setProperty("dep" + depNum + ".size", String.valueOf(nextEntry.getSize()));
+                            properties.setProperty("dep" + depNum + ".externalAttributes", String.valueOf(nextEntry.getExternalAttributes()));
                             properties.setProperty("dep" + depNum + ".time", String.valueOf(nextEntry.getTime()));
                             properties.setProperty("dep" + depNum + ".url", dependencyMetaAndSha512.getUrl());
 
                             if (nextEntry.getMethod() == ZipEntry.STORED) {
-                                // we can use the file from our repository, we may have to import it before (immediate space gain)
+                                // we can use the file from our repository, we
+                                // may have to import it before (immediate space
+                                // gain)
                                 fileMetas.add(new MavenRepositoryFileMeta(nextEntry, sha512, localRepository));
                             } else {
                                 String compressedSha512;
@@ -261,15 +268,17 @@ public class MavenJarExploder {
                                         nextEntry.getCompressedSize())) {
                                     compressedSha512 = compressedStore.store(sha512, nextEntry.getSize(), nextEntry.getCrc(), nextEntry.getCompressedSize(), is);
                                 }
-                                // copy compressed entry in a store so it can be reused when same compression is used (future space gain)
+                                // copy compressed entry in a store so it can be
+                                // reused when same compression is used (future
+                                // space gain)
                                 fileMetas.add(new CompressedStoreFileMeta(nextEntry, sha512, compressedSha512, compressedStore));
                             }
                         }
-                    } 
+                    }
                     if (!found) {
                         // not a dependency, copy as it is (no space gain)
-                        zos.addRawArchiveEntry(nextEntry, new SkipAndLimitFilterInputStream(new FileInputStream(jarWithDependencies), nextEntry.getDataOffset(),
-                                nextEntry.getCompressedSize()));
+                        zos.addRawArchiveEntry(nextEntry,
+                                new SkipAndLimitFilterInputStream(new FileInputStream(jarWithDependencies), nextEntry.getDataOffset(), nextEntry.getCompressedSize()));
                         zos.flush();
                         fileMetas.add(new ExplodedJarFileMeta(nextEntry, sha512, explodedJarFile, explodedJarFile.length() - nextEntry.getCompressedSize()));
                     }
@@ -277,7 +286,7 @@ public class MavenJarExploder {
                     nextEntry = zis.getNextZipEntry();
                 }
             }
-            
+
             // add our property file (space lost !!!)
             File explodedAssemblyFile = new File("exploded-assembly.properties");
             properties.store(new FileOutputStream(explodedAssemblyFile), null);
@@ -286,16 +295,38 @@ public class MavenJarExploder {
             zos.closeArchiveEntry();
         }
 
+        {
+            // an application which downloads exploded-assembly.zip is able to
+            // create reconstructedFile (see below)
+            // it will not match the sha512 of the zip but the content after
+            // unziping will be the same
+            
+            File reconstructedFile = new File("assembly-reconstructed.zip");
+            ContructFromExplodedAssembly.construct(explodedJarFile, reconstructedFile);
+            if (CompareContent.compare(reconstructedFile, jarWithDependencies)) {
+                System.out.println("Reconstructed file has same content than original one");
+            } else {
+                System.out.println("Reconstructed file has different content than original one");
+            }
 
-        // FileMeta data should be in DB and reconstructed
-        File recreatedFile = new File("assembly-recreated.zip");
-        IOUtils.copy(DynamicZip.getInputStream(fileMetas, 0, -1, false), new FileOutputStream(recreatedFile));
-        // verify
-        if (FileUtils.contentEquals(recreatedFile, jarWithDependencies)) {
-            System.out.println("Recreated file has same content than original one, we can delete the original one");
-        } else {
-            System.out.println("Recreated file has different content than original one, we cannot delete the original one. Need to check why they are different, maybe add new DynamicZip options.");
         }
+
+        {
+            // the repository need to be able to recreate exactly the same jar so that if there is checksum (sha1, asc) attached it will be validated
+            // if the code fails to recreate the jar then simply keep the jar
+            
+            // FileMeta data should be in DB and reconstructed
+            File recreatedFile = new File("assembly-recreated.zip");
+            IOUtils.copy(DynamicZip.getInputStream(fileMetas, 0, -1, false), new FileOutputStream(recreatedFile));
+            // verify
+            if (FileUtils.contentEquals(recreatedFile, jarWithDependencies)) {
+                System.out.println("Recreated file has same content than original one, we can delete the original one");
+            } else {
+                System.out.println(
+                        "Recreated file has different content than original one, we cannot delete the original one. Need to check why they are different, maybe add new DynamicZip options.");
+            }
+        }
+
     }
 
 }

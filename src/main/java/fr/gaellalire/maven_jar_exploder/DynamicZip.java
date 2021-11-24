@@ -376,7 +376,7 @@ public final class DynamicZip {
         int getInternalFileAttributes();
 
         long getExternalFileAttributes();
-
+        
         int getVersionMadeBy();
 
         int getVersionRequired();

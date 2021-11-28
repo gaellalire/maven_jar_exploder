@@ -1,1 +1,6 @@
 /target/
+/compressedStore/
+/assembly-reconstructed.zip
+/assembly-recreated.zip
+/exploded-assembly.zip
+/tmpFiles/

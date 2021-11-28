@@ -16,6 +16,7 @@ public class GeneratedZipFileMeta extends AbstractZipArchiveEntryFileMeta implem
     
     public GeneratedZipFileMeta(ZipArchiveEntry zipArchiveEntry, String sha512, List<FileMeta> fileMetas) throws IOException {
         super(zipArchiveEntry, sha512, null);
+        this.fileMetas = fileMetas;
         if (zipArchiveEntry.getSize() == DynamicZip.calculateZipMeta(fileMetas, true).getSize()) {
             zip64 = true;
         } else {

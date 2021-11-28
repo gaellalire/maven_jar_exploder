@@ -18,6 +18,21 @@ public abstract class AbstractZipArchiveEntryFileMeta implements FileMeta {
         this.compressedSha512 = compressedSha512;
     }
     
+    @Override
+    public String getComment() {
+        return zipArchiveEntry.getComment();
+    }
+    
+    @Override
+    public byte[] getCentralDirectoryExtra() {
+        return zipArchiveEntry.getCentralDirectoryExtra();
+    }
+    
+    @Override
+    public int getFlag() {
+        return zipArchiveEntry.getRawFlag();
+    }
+    
     public String getSha512() {
         return sha512;
     }

@@ -20,7 +20,7 @@ public class CompareContent {
                 ZipArchiveEntry nextEntry2 = zis2.getNextZipEntry();
 
                 if (nextEntry1 == null || nextEntry2 == null) {
-                    if (nextEntry2 != null || nextEntry2 != null) {
+                    if (nextEntry1 != null || nextEntry2 != null) {
                         throw new IOException("number of file is different");
                     }
                     break;

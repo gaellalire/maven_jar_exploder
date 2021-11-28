@@ -245,6 +245,11 @@ public class ContructFromExplodedAssembly {
                         nextEntry = zis.getNextZipEntry();
                         continue;
                     }
+                    if (nextEntry.getName().startsWith("META-INF/exploded-assembly-files/")) {
+                        // skip exploded-assembly-files/
+                        nextEntry = zis.getNextZipEntry();
+                        continue;
+                    }
 
                     zos.putArchiveEntry(nextEntry);
                     IOUtils.copy(zis, zos);

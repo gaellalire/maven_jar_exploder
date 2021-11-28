@@ -55,7 +55,7 @@ public final class DynamicZip {
 
         static int zip64Id = 0x0001;
 
-        static int flag = 0x800;
+        int flag;
         
         int versionRequired;
 
@@ -70,6 +70,10 @@ public final class DynamicZip {
         long uncompressedSize;
 
         protected byte[] fileName;
+        
+        public void setFlag(int flag) {
+            this.flag = flag;
+        }
 
         public void setFileName(String fileName) {
             try {
@@ -164,6 +168,8 @@ public final class DynamicZip {
 
         byte[] comment = new byte[0];
         
+        byte[] extra;
+         
         int versionMadeBy;
         
         int diskNumber;
@@ -174,7 +180,7 @@ public final class DynamicZip {
 
         long offset;
 
-        static ZipCentralHeader fromZipLocalHeader(ZipLocalHeader zipLocalHeader, long offset, int internalFileAttributes, long externalFileAttributes, int versionMadeBy) {
+        static ZipCentralHeader fromZipLocalHeader(ZipLocalHeader zipLocalHeader, long offset, int internalFileAttributes, long externalFileAttributes, int versionMadeBy, String comment, byte[] extra) {
             ZipCentralHeader zipCentralHeader = new ZipCentralHeader();
             zipCentralHeader.compressionMethod = zipLocalHeader.compressionMethod;
             zipCentralHeader.lastModificationTime = zipLocalHeader.lastModificationTime;
@@ -182,32 +188,43 @@ public final class DynamicZip {
             zipCentralHeader.compressedSize = zipLocalHeader.compressedSize;
             zipCentralHeader.uncompressedSize = zipLocalHeader.uncompressedSize;
             zipCentralHeader.fileName = zipLocalHeader.fileName;
+            zipCentralHeader.flag = zipLocalHeader.flag;
             zipCentralHeader.versionRequired = zipLocalHeader.versionRequired;
             zipCentralHeader.offset = offset;
             zipCentralHeader.internalFileAttributes = internalFileAttributes;
             zipCentralHeader.externalFileAttributes = externalFileAttributes;
             zipCentralHeader.versionMadeBy = versionMadeBy;
+            zipCentralHeader.extra = extra;
+            try {
+                zipCentralHeader.comment = comment.getBytes("UTF-8");
+            } catch (UnsupportedEncodingException e) {
+                throw new RuntimeException(e);
+            }
             return zipCentralHeader;
         }
 
-        static int getSize(String fileName, String comment, boolean zip64) {
-            int zip64Amount = 0;
+        static int getSize(String fileName, String comment, byte[] extra, boolean zip64) {
+            int extraAmount = 0;
             if (zip64) {
-                zip64Amount = ZIP64_CENTRAL_HEADER_SIZE;
+                extraAmount = ZIP64_CENTRAL_HEADER_SIZE;
+            } else if (extra != null) {
+                extraAmount = extra.length;
             }
             try {
-                return zip64Amount + 46 + fileName.getBytes("UTF-8").length + comment.getBytes("UTF-8").length;
+                return extraAmount + 46 + fileName.getBytes("UTF-8").length + comment.getBytes("UTF-8").length;
             } catch (UnsupportedEncodingException e) {
                 throw new RuntimeException(e);
             }
         }
 
         public int getSize(boolean zip64) {
-            int zip64Amount = 0;
+            int extraAmount = 0;
             if (zip64) {
-                zip64Amount = ZIP64_CENTRAL_HEADER_SIZE;
+                extraAmount = ZIP64_CENTRAL_HEADER_SIZE;
+            } else if (extra != null) {
+                extraAmount = extra.length;
             }
-            return zip64Amount + 46 + fileName.length + comment.length;
+            return extraAmount + 46 + fileName.length + comment.length;
         }
 
         public void write(OutputStream os, boolean zip64) throws IOException {
@@ -230,6 +247,8 @@ public final class DynamicZip {
             writeShort(os, fileName.length);
             if (zip64) {
                 writeShort(os, ZIP64_CENTRAL_HEADER_SIZE);
+            } else if (extra != null) {
+                writeShort(os, extra.length);
             } else {
                 writeShort(os, 0);
             }
@@ -250,6 +269,8 @@ public final class DynamicZip {
                 writeLong(os, compressedSize);
                 writeLong(os, offset);
                 writeInt(os, diskNumber); // disk
+            } else if (extra != null) {
+                os.write(extra);
             }
             os.write(comment);
         }
@@ -360,6 +381,12 @@ public final class DynamicZip {
     public static interface FileMeta {
 
         InputStream getInputStream(long from, long size) throws IOException;
+        
+        int getFlag();
+        
+        byte[] getCentralDirectoryExtra();
+        
+        String getComment();
 
         long getCrc32();
 
@@ -450,6 +477,7 @@ public final class DynamicZip {
 
             ZipLocalHeader zipLocalHeader = new ZipLocalHeader();
             zipLocalHeader.setFileName(fileMeta.getName());
+            zipLocalHeader.setFlag(fileMeta.getFlag());
             int compressionMethod = fileMeta.getMethod();
             if (compressionMethod != ZipEntry.STORED) {
                 zipLocalHeader.compressionMethod = compressionMethod;
@@ -461,7 +489,7 @@ public final class DynamicZip {
             zipLocalHeader.setCrc32(fileMeta.getCrc32());
             zipLocalHeader.lastModificationTime = javaToExtendedDosTime(fileMeta.getTime());
             zipLocalHeader.setVersionRequired(fileMeta.getVersionRequired());
-            centralHeaders.add(ZipCentralHeader.fromZipLocalHeader(zipLocalHeader, currentOffset, fileMeta.getInternalFileAttributes(), fileMeta.getExternalFileAttributes(), fileMeta.getVersionMadeBy()));
+            centralHeaders.add(ZipCentralHeader.fromZipLocalHeader(zipLocalHeader, currentOffset, fileMeta.getInternalFileAttributes(), fileMeta.getExternalFileAttributes(), fileMeta.getVersionMadeBy(), fileMeta.getComment(), fileMeta.getCentralDirectoryExtra()));
             int size = zipLocalHeader.getSize(zip64);
             currentOffset += size;
 
@@ -800,6 +828,7 @@ public final class DynamicZip {
                 }
                 ZipLocalHeader zipLocalHeader = new ZipLocalHeader();
                 zipLocalHeader.setFileName(fileMeta.getName());
+                zipLocalHeader.setFlag(fileMeta.getFlag());
                 int compressionMethod = fileMeta.getMethod();
                 if (compressionMethod != ZipEntry.STORED) {
                     zipLocalHeader.compressionMethod = compressionMethod;
@@ -816,7 +845,7 @@ public final class DynamicZip {
                     return new DynamicZipInputStream(delegates.iterator());
                 }
                 delegates.add(new HeaderInputStreamFactory(zipLocalHeader, 0, -1, zip64));
-                centralHeaders.add(ZipCentralHeader.fromZipLocalHeader(zipLocalHeader, currentOffset, fileMeta.getInternalFileAttributes(), fileMeta.getExternalFileAttributes(), fileMeta.getVersionMadeBy()));
+                centralHeaders.add(ZipCentralHeader.fromZipLocalHeader(zipLocalHeader, currentOffset, fileMeta.getInternalFileAttributes(), fileMeta.getExternalFileAttributes(), fileMeta.getVersionMadeBy(), fileMeta.getComment(), fileMeta.getCentralDirectoryExtra()));
                 if (remainingSize != -1) {
                     remainingSize -= zipLocalHeader.getSize(zip64);
                 }
@@ -913,7 +942,7 @@ public final class DynamicZip {
             }
             size += ZipLocalHeader.getSize(fileMeta.getName(), zip64);
             size += getSize(fileMeta);
-            size += ZipCentralHeader.getSize(fileMeta.getName(), "", zip64);
+            size += ZipCentralHeader.getSize(fileMeta.getName(), fileMeta.getComment(), fileMeta.getCentralDirectoryExtra(), zip64);
         }
         size += ZipCentralHeaderEnd.getSize(zip64, "", empty);
         return new ZipMeta(size, time);

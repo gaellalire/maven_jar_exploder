@@ -114,32 +114,33 @@ public class MavenJarExploder {
         if (classifier != null && classifier.length() != 0) {
             classifierS = "-" + classifier;
         }
-        return new File(localRepository, groupId.replace('.', File.separatorChar) + artifactId + File.separatorChar + version + File.separatorChar + artifactId + "-" + version
+        return new File(localRepository, groupId.replace('.', File.separatorChar) + File.separatorChar + artifactId + File.separatorChar + version + File.separatorChar + artifactId + "-" + version
                 + classifierS + "." + extension);
     }
 
-    public static List<FileMeta> subFile(List<MetaAndSha512> subMetas, File expectedFile, RepackagedJar repackagedJar, File localRepository, CompressedStore compressedStore) throws Exception {
+    public static List<FileMeta> subFile(List<MetaAndSha512> subMetas, File expectedFile, RepackagedJar repackagedJar, File localRepository, CompressedStore compressedStore)
+            throws Exception {
         List<FileMeta> fileMetas = new ArrayList<FileMeta>();
         File originalFile = MavenJarExploder.getFile(localRepository, repackagedJar.getUrl());
         Iterator<MetaAndSha512> iterator = subMetas.iterator();
-        try (ZipArchiveInputStream zis = new ZipArchiveInputStream(new FileInputStream(expectedFile))) {
+        try (ZipArchiveInputStream zis = new ZipArchiveInputStream(new FileInputStream(expectedFile)); ZipFile zipFile = new ZipFile(expectedFile)) {
             ZipArchiveEntry nextEntry = zis.getNextZipEntry();
             while (nextEntry != null) {
+                String name = nextEntry.getName();
+                nextEntry = zipFile.getEntry(name);
                 // if jar in jar -> use the CompressedStoreFileMeta
                 // if file in jar -> same compression than in original ?
-                
+
                 MetaAndSha512 metaAndSha512 = iterator.next();
 
                 String sha512 = metaAndSha512.getSha512();
 
                 String compressedSha512;
-                try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(expectedFile), nextEntry.getDataOffset(),
-                        nextEntry.getCompressedSize())) {
+                try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(expectedFile), nextEntry.getDataOffset(), nextEntry.getCompressedSize())) {
                     compressedSha512 = compressedStore.store(sha512, nextEntry.getSize(), nextEntry.getCrc(), nextEntry.getCompressedSize(), is);
                 }
 
                 fileMetas.add(new CompressedStoreFileMeta(nextEntry, sha512, compressedSha512, compressedStore));
-
 
                 nextEntry = zis.getNextZipEntry();
             }
@@ -148,19 +149,20 @@ public class MavenJarExploder {
 
         return fileMetas;
     }
-    
+
     static class AssemblyFile {
         int position;
+
         int subPosition;
+
         String name;
-        
+
         public AssemblyFile(int position, int subPosition, String name) {
             this.position = position;
             this.subPosition = subPosition;
             this.name = name;
         }
-        
-        
+
     }
 
     public static void main(String[] args) throws Exception {
@@ -349,8 +351,12 @@ public class MavenJarExploder {
                                 // gain)
                                 fileMetas.add(new MavenRepositoryFileMeta(nextEntry, sha512, dependencyMetaAndSha512.getUrl(), localRepository));
                             } else {
-                                // if this is a war in ear which has same lifecyle than its ear, this case is very bad. The war is not skinny and
-                                // it has a new version for each new version of ear. So we never gain space, no space lost though.
+                                // if this is a war in ear which has same
+                                // lifecyle than its ear, this case is very bad.
+                                // The war is not skinny and
+                                // it has a new version for each new version of
+                                // ear. So we never gain space, no space lost
+                                // though.
                                 String compressedSha512;
                                 try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(jarWithDependencies), nextEntry.getDataOffset(),
                                         nextEntry.getCompressedSize())) {
@@ -376,13 +382,13 @@ public class MavenJarExploder {
                                     }
                                     fileNames.append("file");
                                     fileNames.append(explodedFile);
-                                    properties.setProperty("file"+ explodedFile + ".name", fileMeta.getName());
-                                    properties.setProperty("file"+ explodedFile + ".externalAttributes", String.valueOf(fileMeta.getExternalAttributes()));
-                                    properties.setProperty("file"+ explodedFile + ".time", String.valueOf(fileMeta.getTime()));
-                                    properties.setProperty("file"+ explodedFile + ".position", String.valueOf(fileMeta.getPosition()));
-                                    assemblyFiles.add(new AssemblyFile(position, fileMeta.getPosition(), "META-INF/exploded-assembly-files/file"+ explodedFile));
+                                    properties.setProperty("file" + explodedFile + ".name", fileMeta.getName());
+                                    properties.setProperty("file" + explodedFile + ".externalAttributes", String.valueOf(fileMeta.getExternalAttributes()));
+                                    properties.setProperty("file" + explodedFile + ".time", String.valueOf(fileMeta.getTime()));
+                                    properties.setProperty("file" + explodedFile + ".position", String.valueOf(fileMeta.getPosition()));
+                                    assemblyFiles.add(new AssemblyFile(position, fileMeta.getPosition(), "META-INF/exploded-assembly-files/file" + explodedFile));
                                 }
-                                
+
                                 found = true;
                                 depNum++;
                                 String property = properties.getProperty("dependencies");
@@ -405,28 +411,46 @@ public class MavenJarExploder {
                                 properties.setProperty("dep" + depNum + ".repackage.files", fileNames.toString());
 
                                 if (nextEntry.getMethod() == ZipEntry.STORED) {
-                                    // we can try to recreate the skinny war / ejb
-                                    
-                                    File tmpFile = new File("tmp.data");
-                                    try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(jarWithDependencies), nextEntry.getDataOffset(),
-                                            nextEntry.getCompressedSize())) {
-                                        try (FileOutputStream output = new FileOutputStream(tmpFile)) {
-                                            IOUtils.copy(is, output);
-                                        }
-                                    }
-                                    fileMetas.add(new GeneratedZipFileMeta(nextEntry, sha512, subFile(subMetas, tmpFile, repackagedJar, localRepository, compressedStore)));
+                                    // we can try to recreate the skinny war /
+                                    // ejb
 
+                                    File tmpFile = new File("tmp.data");
+                                    try {
+                                        try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(jarWithDependencies), nextEntry.getDataOffset(),
+                                                nextEntry.getCompressedSize())) {
+                                            try (FileOutputStream output = new FileOutputStream(tmpFile)) {
+                                                IOUtils.copy(is, output);
+                                            }
+                                        }
+                                        GeneratedZipFileMeta gfm = new GeneratedZipFileMeta(nextEntry, sha512, subFile(subMetas, tmpFile, repackagedJar, localRepository, compressedStore));
+                                        if(!IOUtils.contentEquals(gfm.getInputStream(0, -1), new FileInputStream(tmpFile))) {
+                                            try(FileOutputStream output = new FileOutputStream(tmpFile)) {
+                                            IOUtils.copy(gfm.getInputStream(0, -1), output);
+                                            }
+                                            throw new IOException("GeneratedZipFileMeta");
+                                        }
+                                        fileMetas.add(gfm);
+                                    } finally {
+                                       // tmpFile.delete();
+                                    }
                                 } else {
-                                    // if the skinny war is not kept as STORED we will have to keep this skinny war in CompressedStoreFileMeta which is a lost of space
-                                    // maven-ear-plugin should compress the skinny war with best compression (9) and add it to the ear as STORED
-                                    
+                                    // if the skinny war is not kept as STORED
+                                    // we will have to keep this skinny war in
+                                    // CompressedStoreFileMeta which is a lost
+                                    // of space
+                                    // maven-ear-plugin should compress the
+                                    // skinny war with best compression (9) and
+                                    // add it to the ear as STORED
+
                                     String compressedSha512;
                                     try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(jarWithDependencies), nextEntry.getDataOffset(),
                                             nextEntry.getCompressedSize())) {
                                         compressedSha512 = compressedStore.store(sha512, nextEntry.getSize(), nextEntry.getCrc(), nextEntry.getCompressedSize(), is);
                                     }
-                                    // copy compressed entry in a store so it can be
-                                    // reused when same compression is used (future
+                                    // copy compressed entry in a store so it
+                                    // can be
+                                    // reused when same compression is used
+                                    // (future
                                     // space gain)
                                     fileMetas.add(new CompressedStoreFileMeta(nextEntry, sha512, compressedSha512, compressedStore));
                                 }
@@ -452,7 +476,7 @@ public class MavenJarExploder {
             zos.putArchiveEntry(new ZipArchiveEntry(explodedAssemblyFile, "META-INF/exploded-assembly.properties"));
             IOUtils.copy(new FileInputStream(explodedAssemblyFile), zos);
             zos.closeArchiveEntry();
-            
+
             for (AssemblyFile assemblyFile : assemblyFiles) {
                 zos.putArchiveEntry(new ZipArchiveEntry(assemblyFile.name));
                 position = 0;
@@ -494,7 +518,7 @@ public class MavenJarExploder {
             ContructFromExplodedAssembly.construct(explodedJarFile, reconstructedFile);
             LOGGER.info("assembly-reconstructed.zip created");
             try {
-                CompareContent.compare(reconstructedFile, jarWithDependencies);   
+                CompareContent.compare(reconstructedFile, jarWithDependencies);
                 LOGGER.info("Reconstructed file has same content than original one");
             } catch (IOException e) {
                 LOGGER.error("Reconstructed file has different content than original one", e);
@@ -511,7 +535,24 @@ public class MavenJarExploder {
             // FileMeta data should be in DB and reconstructed
             File recreatedFile = new File("assembly-recreated.zip");
             LOGGER.info("Creating assembly-recreated.zip (identical file, should be used be repository manager [nexus, artifactory ...])");
-            IOUtils.copy(DynamicZip.getInputStream(fileMetas, 0, -1, false), new FileOutputStream(recreatedFile));
+            boolean zip64 = false;
+            long size64 = DynamicZip.calculateZipMeta(fileMetas, true).getSize();
+            if (jarWithDependencies.length() == size64) {
+                zip64 = true;
+            } else {
+                long size32 = DynamicZip.calculateZipMeta(fileMetas, false).getSize();
+                if (jarWithDependencies.length() != size32) {
+                    try (FileOutputStream output = new FileOutputStream(recreatedFile)) {
+                        IOUtils.copy(DynamicZip.getInputStream(fileMetas, 0, -1, false), output);
+                    }
+
+                    throw new IOException("Unable to match size expected:\n" + jarWithDependencies.length() + "\n32bits:\n" + size32  + " \n64bits:\n" + size64);
+                }
+            }
+
+            try (FileOutputStream output = new FileOutputStream(recreatedFile)) {
+                IOUtils.copy(DynamicZip.getInputStream(fileMetas, 0, -1, zip64), output);
+            }
             LOGGER.info("assembly-recreated.zip created");
             // verify
             if (FileUtils.contentEquals(recreatedFile, jarWithDependencies)) {

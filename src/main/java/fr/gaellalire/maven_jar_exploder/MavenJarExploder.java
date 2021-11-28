@@ -570,10 +570,12 @@ public class MavenJarExploder {
             LOGGER.info("assembly-recreated.zip created");
             // verify
             if (FileUtils.contentEquals(recreatedFile, jarWithDependencies)) {
-                LOGGER.info("Recreated file has same content than original one, we can delete the original one");
+                LOGGER.info("Recreated file is identical to the original one, we can delete the original one");
+                LOGGER.info("mvn install:install-file -Dfile=exploded-assembly.zip -DgroupId=" + groupId + " -DartifactId=" + artifactId + " -Dversion=" + version + " -Dpackaging="
+                        + extension + " -Dclassifier=exploded-assembly");
             } else {
                 LOGGER.error(
-                        "Recreated file has different content than original one, we cannot delete the original one. Need to check why they are different, maybe add new DynamicZip options.");
+                        "Recreated file is different from the original one, we cannot delete the original one. Need to check why they are different, maybe add new DynamicZip options.");
             }
         }
 

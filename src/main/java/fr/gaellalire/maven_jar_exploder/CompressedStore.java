@@ -87,6 +87,13 @@ public class CompressedStore {
     private Map<Key, File> fileByKey = new HashMap<Key, File>();
 
     private AtomicInteger number = new AtomicInteger();
+    
+    private File home;
+    
+    public CompressedStore() {
+        home = new File("compressedStore");
+        home.mkdirs();
+    }
 
     public InputStream getInputStream(String sha512, long size, long crc32, long compressedSize, String compressedSha512) throws IOException {
         File file = fileByKey.get(new Key(sha512, size, crc32, compressedSize, compressedSha512));
@@ -95,7 +102,7 @@ public class CompressedStore {
 
     public String store(String sha512, long size, long crc32, long compressedSize, InputStream inputStream) throws IOException {
         int incrementAndGet = number.incrementAndGet();
-        File file = new File("comp" + incrementAndGet + ".cache");
+        File file = new File(home, "comp" + incrementAndGet + ".cache");
         MessageDigest messageDigest;
         try {
             messageDigest = MessageDigest.getInstance("SHA-512");

@@ -158,10 +158,11 @@ public class ContructFromExplodedAssembly {
                             DefaultArtifact artifact = new DefaultArtifact(matcher.group(1), matcher.group(2), matcher.group(5), extension, matcher.group(3));
                             ArtifactResult resolveArtifact = repositorySystem.resolveArtifact(session, new ArtifactRequest(artifact, repositories, null));
 
+                            File tmpFile = null;
                             File file = resolveArtifact.getArtifact().getFile();
                             if (currentDep.positions != null) {
                                 // need to create a new file
-                                File tmpFile = new File("data.zip");
+                                tmpFile = new File("data.zip");
                                 List<FileOverride> fileOverrides = new ArrayList<FileOverride>();
                                 if (currentDep.files != null) {
                                     for (String fileNumber : currentDep.files) {
@@ -234,6 +235,8 @@ public class ContructFromExplodedAssembly {
                                 IOUtils.copy(input, zos);
                             }
                             zos.closeArchiveEntry();
+                            if (tmpFile != null)
+                                tmpFile.delete();
                         }
                         if (iterator.hasNext()) {
                             currentDep = iterator.next();

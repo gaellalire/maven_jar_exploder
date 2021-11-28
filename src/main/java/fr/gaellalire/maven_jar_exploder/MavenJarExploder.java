@@ -114,37 +114,53 @@ public class MavenJarExploder {
         if (classifier != null && classifier.length() != 0) {
             classifierS = "-" + classifier;
         }
-        return new File(localRepository, groupId.replace('.', File.separatorChar) + File.separatorChar + artifactId + File.separatorChar + version + File.separatorChar + artifactId + "-" + version
-                + classifierS + "." + extension);
+        return new File(localRepository, groupId.replace('.', File.separatorChar) + File.separatorChar + artifactId + File.separatorChar + version + File.separatorChar + artifactId
+                + "-" + version + classifierS + "." + extension);
     }
 
     public static List<FileMeta> subFile(List<MetaAndSha512> subMetas, File expectedFile, RepackagedJar repackagedJar, File localRepository, CompressedStore compressedStore)
             throws Exception {
         List<FileMeta> fileMetas = new ArrayList<FileMeta>();
         File originalFile = MavenJarExploder.getFile(localRepository, repackagedJar.getUrl());
-        Iterator<MetaAndSha512> iterator = subMetas.iterator();
-        try (ZipArchiveInputStream zis = new ZipArchiveInputStream(new FileInputStream(expectedFile)); ZipFile zipFile = new ZipFile(expectedFile)) {
-            ZipArchiveEntry nextEntry = zis.getNextZipEntry();
-            while (nextEntry != null) {
-                String name = nextEntry.getName();
-                nextEntry = zipFile.getEntry(name);
-                // if jar in jar -> use the CompressedStoreFileMeta
-                // if file in jar -> same compression than in original ?
+        try (ZipFile originalZipFile = new ZipFile(originalFile)) {
+            Iterator<MetaAndSha512> iterator = subMetas.iterator();
+            try (ZipArchiveInputStream zis = new ZipArchiveInputStream(new FileInputStream(expectedFile)); ZipFile zipFile = new ZipFile(expectedFile)) {
+                ZipArchiveEntry nextEntry = zis.getNextZipEntry();
+                while (nextEntry != null) {
+                    String name = nextEntry.getName();
+                    nextEntry = zipFile.getEntry(name);
+                    MetaAndSha512 metaAndSha512 = iterator.next();
 
-                MetaAndSha512 metaAndSha512 = iterator.next();
+                    if (nextEntry.isDirectory() || nextEntry.getSize() == 0) {
+                        fileMetas.add(new NoContentFileMeta(nextEntry));
+                        nextEntry = zis.getNextZipEntry();
+                        continue;
+                    }
 
-                String sha512 = metaAndSha512.getSha512();
+                    String sha512 = metaAndSha512.getSha512();
 
-                String compressedSha512;
-                try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(expectedFile), nextEntry.getDataOffset(), nextEntry.getCompressedSize())) {
-                    compressedSha512 = compressedStore.store(sha512, nextEntry.getSize(), nextEntry.getCrc(), nextEntry.getCompressedSize(), is);
+                    ZipArchiveEntry originalEntry = originalZipFile.getEntry(name);
+                    try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(expectedFile), nextEntry.getDataOffset(), nextEntry.getCompressedSize());
+                            InputStream ois = new SkipAndLimitFilterInputStream(new FileInputStream(originalFile), originalEntry.getDataOffset(),
+                                    originalEntry.getCompressedSize())) {
+                        if (IOUtils.contentEquals(is, ois)) {
+                            fileMetas.add(new FilePartFileMeta(nextEntry, sha512, originalFile, originalEntry.getDataOffset(), originalEntry.getCompressedSize()));
+                            nextEntry = zis.getNextZipEntry();
+                            continue;
+                        }
+                    }
+
+                    String compressedSha512;
+                    try (InputStream is = new SkipAndLimitFilterInputStream(new FileInputStream(expectedFile), nextEntry.getDataOffset(), nextEntry.getCompressedSize())) {
+                        compressedSha512 = compressedStore.store(sha512, nextEntry.getSize(), nextEntry.getCrc(), nextEntry.getCompressedSize(), is);
+                    }
+
+                    fileMetas.add(new CompressedStoreFileMeta(nextEntry, sha512, compressedSha512, compressedStore));
+
+                    nextEntry = zis.getNextZipEntry();
                 }
 
-                fileMetas.add(new CompressedStoreFileMeta(nextEntry, sha512, compressedSha512, compressedStore));
-
-                nextEntry = zis.getNextZipEntry();
             }
-
         }
 
         return fileMetas;
@@ -422,16 +438,17 @@ public class MavenJarExploder {
                                                 IOUtils.copy(is, output);
                                             }
                                         }
-                                        GeneratedZipFileMeta gfm = new GeneratedZipFileMeta(nextEntry, sha512, subFile(subMetas, tmpFile, repackagedJar, localRepository, compressedStore));
-                                        if(!IOUtils.contentEquals(gfm.getInputStream(0, -1), new FileInputStream(tmpFile))) {
-                                            try(FileOutputStream output = new FileOutputStream(tmpFile)) {
-                                            IOUtils.copy(gfm.getInputStream(0, -1), output);
+                                        GeneratedZipFileMeta gfm = new GeneratedZipFileMeta(nextEntry, sha512,
+                                                subFile(subMetas, tmpFile, repackagedJar, localRepository, compressedStore));
+                                        if (!IOUtils.contentEquals(gfm.getInputStream(0, -1), new FileInputStream(tmpFile))) {
+                                            try (FileOutputStream output = new FileOutputStream(tmpFile)) {
+                                                IOUtils.copy(gfm.getInputStream(0, -1), output);
                                             }
                                             throw new IOException("GeneratedZipFileMeta");
                                         }
                                         fileMetas.add(gfm);
                                     } finally {
-                                       // tmpFile.delete();
+                                        tmpFile.delete();
                                     }
                                 } else {
                                     // if the skinny war is not kept as STORED
@@ -476,6 +493,7 @@ public class MavenJarExploder {
             zos.putArchiveEntry(new ZipArchiveEntry(explodedAssemblyFile, "META-INF/exploded-assembly.properties"));
             IOUtils.copy(new FileInputStream(explodedAssemblyFile), zos);
             zos.closeArchiveEntry();
+            explodedAssemblyFile.delete();
 
             for (AssemblyFile assemblyFile : assemblyFiles) {
                 zos.putArchiveEntry(new ZipArchiveEntry(assemblyFile.name));
@@ -542,11 +560,7 @@ public class MavenJarExploder {
             } else {
                 long size32 = DynamicZip.calculateZipMeta(fileMetas, false).getSize();
                 if (jarWithDependencies.length() != size32) {
-                    try (FileOutputStream output = new FileOutputStream(recreatedFile)) {
-                        IOUtils.copy(DynamicZip.getInputStream(fileMetas, 0, -1, false), output);
-                    }
-
-                    throw new IOException("Unable to match size expected:\n" + jarWithDependencies.length() + "\n32bits:\n" + size32  + " \n64bits:\n" + size64);
+                    throw new IOException("Unable to match size expected:\n" + jarWithDependencies.length() + "\n32bits:\n" + size32 + " \n64bits:\n" + size64);
                 }
             }
 

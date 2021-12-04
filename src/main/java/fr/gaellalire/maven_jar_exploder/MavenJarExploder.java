@@ -283,6 +283,7 @@ public class MavenJarExploder {
             int position = 0;
             int depNum = 0;
             int explodedFile = 0;
+            List<String> urlList = new ArrayList<String>();
             List<AssemblyFile> assemblyFiles = new ArrayList<AssemblyFile>();
             // use ZipArchiveInputStream to get the correct order
             // use ZipFile to fetch attributes in central header
@@ -425,6 +426,27 @@ public class MavenJarExploder {
                                 properties.setProperty("dep" + depNum + ".repackage.times", repackagedJar.getTimes());
                                 properties.setProperty("dep" + depNum + ".repackage.externalAttributesList", repackagedJar.getExternalAttributesList());
                                 properties.setProperty("dep" + depNum + ".repackage.files", fileNames.toString());
+                                StringBuilder excludedURLsSB = new StringBuilder();
+                                boolean firstExcludedURL = true;
+                                List<String> excludedURLs = repackagedJar.getExcludedURLs();
+                                if (excludedURLs != null && excludedURLs.size() != 0) {
+                                    for (String excludedURL : excludedURLs) {
+                                        int indexOf = urlList.indexOf(excludedURL) + 1;
+                                        if (indexOf == 0) {
+                                            urlList.add(excludedURL);
+                                            indexOf = urlList.size();
+                                            properties.setProperty("url" + indexOf, excludedURL);
+                                        }
+                                        if (firstExcludedURL) {
+                                            firstExcludedURL = false;
+                                        } else {
+                                            excludedURLsSB.append(",");
+                                        }
+                                        excludedURLsSB.append("url");
+                                        excludedURLsSB.append(indexOf);
+                                    }
+                                    properties.setProperty("dep" + depNum + ".repackage.excludedURLs", excludedURLsSB.toString());
+                                }
 
                                 if (nextEntry.getMethod() == ZipEntry.STORED) {
                                     // we can try to recreate the skinny war /

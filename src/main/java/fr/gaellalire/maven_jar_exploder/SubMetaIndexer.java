@@ -22,7 +22,7 @@ public class SubMetaIndexer {
         }
 
         public RepackagedJar repackage(List<MetaAndSha512> assembledSubMetas) {
-            List<String> excludedURL = new ArrayList<String>();
+            List<String> excludedURLs = new ArrayList<String>();
             StringBuilder positions = new StringBuilder();
             StringBuilder times = new StringBuilder();
             StringBuilder externalAttributesSB = new StringBuilder();
@@ -33,10 +33,6 @@ public class SubMetaIndexer {
                 String name = assembledSubMeta.getName();
                 long time = assembledSubMeta.getTime();
                 long externalAttributes = assembledSubMeta.getExternalAttributes();
-                // if (name.endsWith("/")) {
-                // // dir
-                // continue;
-                // }
                 int position = 0;
                 for (MetaAndSha512 subMeta : this.subMetas) {
                     position++;
@@ -85,11 +81,11 @@ public class SubMetaIndexer {
                     return null;
                 }
                 String url = metaAndSha512.getUrl();
-                excludedURL.add(url);
+                excludedURLs.add(url);
             }
             
 
-            return new RepackagedJar(positions.toString(), times.toString(), externalAttributesSB.toString(), excludedURL, meta.getUrl(), filesToAdd);
+            return new RepackagedJar(positions.toString(), times.toString(), externalAttributesSB.toString(), excludedURLs, meta.getUrl(), filesToAdd);
         }
 
     }
